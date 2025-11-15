@@ -2,12 +2,16 @@ import os
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import threading
+import multiprocessing
+import shutil
+import concurrent.futures
+from pathlib import Path
 
 class CodeScanner:
     def __init__(self, root):
         self.root = root
         self.root.title("代码库扫描工具")
-        self.root.geometry("800x600")
+        self.root.geometry("1000x700")
         
         # 创建界面组件
         self.create_widgets()
@@ -23,7 +27,7 @@ class CodeScanner:
         
         # 文件夹选择框架
         folder_frame = ttk.LabelFrame(main_frame, text="扫描选项", padding="5")
-        folder_frame.grid(row=1, column=0, columnspan=3, pady=10, sticky=(tk.W, tk.E))
+        folder_frame.grid(row=1, column=0, columnspan=4, pady=10, sticky=(tk.W, tk.E))
         
         # 全盘扫描选项
         self.scan_all_var = tk.BooleanVar(value=True)
@@ -41,29 +45,46 @@ class CodeScanner:
         
         # 已选文件夹显示
         self.folder_label = ttk.Label(folder_frame, text="未选择文件夹", foreground="gray")
-        self.folder_label.grid(row=1, column=0, columnspan=3, pady=5, sticky=tk.W)
+        self.folder_label.grid(row=1, column=0, columnspan=4, pady=5, sticky=tk.W)
+        
+        # 同步路径选择
+        sync_frame = ttk.LabelFrame(main_frame, text="同步选项", padding="5")
+        sync_frame.grid(row=2, column=0, columnspan=4, pady=10, sticky=(tk.W, tk.E))
+        
+        # 同步路径选择按钮
+        self.sync_button = ttk.Button(sync_frame, text="选择同步路径", command=self.select_sync_path)
+        self.sync_button.grid(row=0, column=0, padx=5, sticky=tk.W)
+        
+        # 同步路径显示
+        self.sync_label = ttk.Label(sync_frame, text="未选择同步路径", foreground="gray")
+        self.sync_label.grid(row=0, column=1, padx=5, sticky=tk.W)
+        
+        # 开始同步按钮
+        self.sync_start_button = ttk.Button(sync_frame, text="开始同步", command=self.start_sync, state='disabled')
+        self.sync_start_button.grid(row=0, column=2, padx=5, sticky=tk.W)
         
         # 扫描按钮
         self.scan_button = ttk.Button(main_frame, text="开始扫描", command=self.start_scan)
-        self.scan_button.grid(row=2, column=0, pady=10, sticky=tk.W)
+        self.scan_button.grid(row=3, column=0, pady=10, sticky=tk.W)
         
         # 进度条
         self.progress = ttk.Progressbar(main_frame, mode='indeterminate')
-        self.progress.grid(row=2, column=1, columnspan=2, pady=10, sticky=(tk.W, tk.E))
+        self.progress.grid(row=3, column=1, columnspan=3, pady=10, sticky=(tk.W, tk.E))
         
         # 结果文本框
-        self.result_text = tk.Text(main_frame, height=20, width=80)
-        self.result_text.grid(row=3, column=0, columnspan=3, pady=10, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.result_text = tk.Text(main_frame, height=20, width=90)
+        self.result_text.grid(row=4, column=0, columnspan=4, pady=10, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # 滚动条
         scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=self.result_text.yview)
-        scrollbar.grid(row=3, column=3, sticky=(tk.N, tk.S))
+        scrollbar.grid(row=4, column=4, sticky=(tk.N, tk.S))
         self.result_text.configure(yscrollcommand=scrollbar.set)
         
         # 配置网格权重
         main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(3, weight=1)
+        main_frame.rowconfigure(4, weight=1)
         folder_frame.columnconfigure(1, weight=1)
+        sync_frame.columnconfigure(1, weight=1)
         
     def toggle_folder_selection(self):
         # 切换文件夹选择状态
@@ -92,6 +113,17 @@ class CodeScanner:
                 folder_names = "\n".join([os.path.basename(f) for f in self.selected_folders[:3]])
                 display_text = f"已选择 {len(self.selected_folders)} 个文件夹:\n{folder_names}\n...（还有{len(self.selected_folders)-3}个）"
             self.folder_label.config(text=display_text, foreground="black")
+    
+    def select_sync_path(self):
+        # 选择同步路径
+        sync_path = filedialog.askdirectory(
+            title="选择同步目标路径",
+            mustexist=True
+        )
+        if sync_path:
+            self.sync_path = sync_path
+            self.sync_label.config(text=f"同步到: {sync_path}", foreground="black")
+            self.sync_start_button.config(state='normal')
     
     def start_scan(self):
         # 禁用扫描按钮，启动进度条
@@ -133,6 +165,100 @@ class CodeScanner:
         except Exception as e:
             self.scan_complete([], str(e))
     
+    def start_sync(self):
+        # 开始同步
+        if not hasattr(self, 'git_repos') or not self.git_repos:
+            messagebox.showwarning("警告", "请先扫描代码库")
+            return
+        
+        if not hasattr(self, 'sync_path'):
+            messagebox.showwarning("警告", "请先选择同步路径")
+            return
+        
+        self.sync_start_button.config(state='disabled')
+        self.progress.start(10)
+        self.result_text.delete(1.0, tk.END)
+        self.result_text.insert(tk.END, "开始同步代码库...\n")
+        
+        # 在新线程中执行同步
+        thread = threading.Thread(target=self.sync_repositories)
+        thread.daemon = True
+        thread.start()
+    
+    def sync_repositories(self):
+        try:
+            # 创建同步目录
+            sync_base = os.path.join(self.sync_path, "Depot_Sync", "Data")
+            os.makedirs(sync_base, exist_ok=True)
+            
+            self.update_result(f"同步到: {sync_base}")
+            
+            # 使用进程池进行多进程同步
+            cpu_count = multiprocessing.cpu_count()
+            max_workers = min(cpu_count * 2, len(self.git_repos))
+            
+            self.update_result(f"使用 {max_workers} 个进程进行同步...")
+            
+            # 准备同步任务
+            sync_tasks = []
+            for repo_path in self.git_repos:
+                repo_name = os.path.basename(repo_path)
+                target_path = os.path.join(sync_base, repo_name)
+                sync_tasks.append((repo_path, target_path))
+            
+            # 显示所有待同步任务
+            for repo_path, target_path in sync_tasks:
+                self.update_result(f"待同步: {os.path.basename(repo_path)} -> {target_path}")
+            
+            # 使用进程池执行同步
+            with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+                futures = {}
+                for repo_path, target_path in sync_tasks:
+                    # 使用独立的同步函数，避免传递self
+                    future = executor.submit(self._sync_repository_task, repo_path, target_path)
+                    futures[future] = os.path.basename(repo_path)
+                
+                # 等待所有任务完成并更新进度
+                completed_count = 0
+                for future in concurrent.futures.as_completed(futures):
+                    repo_name = futures[future]
+                    completed_count += 1
+                    try:
+                        result = future.result()
+                        self.update_result(f"[{completed_count}/{len(sync_tasks)}] {result}")
+                    except Exception as e:
+                        self.update_result(f"[{completed_count}/{len(sync_tasks)}] 同步失败 {repo_name}: {e}")
+            
+            self.update_result("同步完成!")
+            self.sync_complete()
+            
+        except Exception as e:
+            self.update_result(f"同步过程中发生错误: {e}")
+            self.sync_complete()
+    
+    def _sync_repository_task(self, repo_path, target_path):
+        # 独立的同步任务函数，不包含任何tkinter引用
+        try:
+            # 如果目标路径存在，先删除
+            if os.path.exists(target_path):
+                shutil.rmtree(target_path)
+            
+            # 复制整个代码库
+            shutil.copytree(repo_path, target_path)
+            
+            return f"成功同步: {os.path.basename(repo_path)}"
+            
+        except Exception as e:
+            return f"同步失败 {os.path.basename(repo_path)}: {e}"
+    
+    def sync_complete(self):
+        # 同步完成后的处理
+        def complete():
+            self.progress.stop()
+            self.sync_start_button.config(state='normal')
+        
+        self.root.after(0, complete)
+    
     def get_available_drives(self):
         # 获取Windows系统下的所有驱动器
         drives = []
@@ -160,6 +286,8 @@ class CodeScanner:
                 self.result_text.insert(tk.END, "未发现任何代码库")
             else:
                 self.result_text.insert(tk.END, f"\n扫描完成! 共发现 {len(git_repos)} 个代码库")
+                # 保存扫描结果用于同步
+                self.git_repos = git_repos
         
         self.root.after(0, complete)
 
