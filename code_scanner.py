@@ -7,6 +7,21 @@ import shutil
 import concurrent.futures
 from pathlib import Path
 
+def sync_repository_task(repo_path, target_path):
+    # 完全独立的同步任务函数，不包含任何类引用
+    try:
+        # 如果目标路径存在，先删除
+        if os.path.exists(target_path):
+            shutil.rmtree(target_path)
+        
+        # 复制整个代码库
+        shutil.copytree(repo_path, target_path)
+        
+        return f"成功同步: {os.path.basename(repo_path)}"
+        
+    except Exception as e:
+        return f"同步失败 {os.path.basename(repo_path)}: {e}"
+
 class CodeScanner:
     def __init__(self, root):
         self.root = root
@@ -214,8 +229,8 @@ class CodeScanner:
             with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
                 futures = {}
                 for repo_path, target_path in sync_tasks:
-                    # 使用独立的同步函数，避免传递self
-                    future = executor.submit(self._sync_repository_task, repo_path, target_path)
+                    # 使用完全独立的同步函数
+                    future = executor.submit(sync_repository_task, repo_path, target_path)
                     futures[future] = os.path.basename(repo_path)
                 
                 # 等待所有任务完成并更新进度
@@ -236,20 +251,7 @@ class CodeScanner:
             self.update_result(f"同步过程中发生错误: {e}")
             self.sync_complete()
     
-    def _sync_repository_task(self, repo_path, target_path):
-        # 独立的同步任务函数，不包含任何tkinter引用
-        try:
-            # 如果目标路径存在，先删除
-            if os.path.exists(target_path):
-                shutil.rmtree(target_path)
-            
-            # 复制整个代码库
-            shutil.copytree(repo_path, target_path)
-            
-            return f"成功同步: {os.path.basename(repo_path)}"
-            
-        except Exception as e:
-            return f"同步失败 {os.path.basename(repo_path)}: {e}"
+    # _sync_repository_task 方法已移除，使用顶部的独立函数
     
     def sync_complete(self):
         # 同步完成后的处理
