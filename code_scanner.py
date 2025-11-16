@@ -404,32 +404,69 @@ class CodeScanner:
         self.root.after(0, complete)
 
     def load_sync_info(self, sync_path):
-        # 从JSON文件加载同步信息
+        # 从JSON文件加载同步信息（多文件结构）
         json_dir = os.path.join(sync_path, "Depot_Sync", "JSON")
         os.makedirs(json_dir, exist_ok=True)
         
-        # 为每个代码库创建单独的JSON文件
-        self.json_config_path = os.path.join(json_dir, "sync_info.json")
+        # 主索引文件路径
+        self.main_index_path = os.path.join(json_dir, "sync_info.json")
+        # 代码库JSON文件目录
+        self.repo_json_dir = os.path.join(json_dir, "repos")
+        os.makedirs(self.repo_json_dir, exist_ok=True)
         
-        if os.path.exists(self.json_config_path):
+        self.sync_info = {}
+        
+        # 加载主索引文件
+        if os.path.exists(self.main_index_path):
             try:
-                with open(self.json_config_path, 'r', encoding='utf-8') as f:
-                    self.sync_info = json.load(f)
+                with open(self.main_index_path, 'r', encoding='utf-8') as f:
+                    main_index = json.load(f)
+                
+                # 加载每个代码库的独立JSON文件
+                for repo_name, repo_info in main_index.items():
+                    repo_json_path = os.path.join(self.repo_json_dir, f"{repo_name}_sync_info.json")
+                    if os.path.exists(repo_json_path):
+                        try:
+                            with open(repo_json_path, 'r', encoding='utf-8') as repo_f:
+                                self.sync_info[repo_name] = json.load(repo_f)
+                        except Exception as e:
+                            self.update_result(f"加载代码库 {repo_name} 信息失败: {e}")
+                            self.sync_info[repo_name] = repo_info  # 使用主索引中的基本信息
+                
                 self.update_result(f"已加载同步信息: {len(self.sync_info)} 个代码库记录")
+                
             except Exception as e:
-                self.update_result(f"加载同步信息失败: {e}")
+                self.update_result(f"加载主索引信息失败: {e}")
                 self.sync_info = {}
         else:
-            self.sync_info = {}
             self.update_result("未找到同步信息文件，将创建新文件")
 
     def save_sync_info(self):
-        # 保存同步信息到JSON文件
-        if self.json_config_path:
+        # 保存同步信息到JSON文件（多文件结构）
+        if self.main_index_path and self.repo_json_dir:
             try:
-                with open(self.json_config_path, 'w', encoding='utf-8') as f:
-                    json.dump(self.sync_info, f, ensure_ascii=False, indent=2)
-                self.update_result("同步信息已保存")
+                # 创建主索引（包含基本信息）
+                main_index = {}
+                for repo_name, repo_info in self.sync_info.items():
+                    main_index[repo_name] = {
+                        "last_sync": repo_info.get("last_sync", ""),
+                        "source_path": repo_info.get("source_path", ""),
+                        "target_path": repo_info.get("target_path", ""),
+                        "file_count": len(repo_info.get("files", {}))
+                    }
+                
+                # 保存主索引
+                with open(self.main_index_path, 'w', encoding='utf-8') as f:
+                    json.dump(main_index, f, ensure_ascii=False, indent=2)
+                
+                # 保存每个代码库的独立JSON文件
+                for repo_name, repo_info in self.sync_info.items():
+                    repo_json_path = os.path.join(self.repo_json_dir, f"{repo_name}_sync_info.json")
+                    with open(repo_json_path, 'w', encoding='utf-8') as repo_f:
+                        json.dump(repo_info, repo_f, ensure_ascii=False, indent=2)
+                
+                self.update_result(f"同步信息已保存 ({len(self.sync_info)} 个代码库)")
+                
             except Exception as e:
                 self.update_result(f"保存同步信息失败: {e}")
 
