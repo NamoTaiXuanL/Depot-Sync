@@ -59,9 +59,30 @@ def sync_repository_task(repo_path, target_path, sync_info=None):
                 # 哈希值相同，无需同步
                 return f"跳过同步（无变化）: {repo_name}", None
         
-        # 如果目标路径存在，先删除
+        # 如果目标路径存在，先删除（处理权限问题）
         if os.path.exists(target_path):
-            shutil.rmtree(target_path)
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    shutil.rmtree(target_path)
+                    break  # 删除成功，跳出循环
+                except PermissionError:
+                    if attempt == max_retries - 1:  # 最后一次尝试
+                        # 如果权限不足，尝试使用更强大的删除方法
+                        import subprocess
+                        try:
+                            # 使用系统命令强制删除
+                            if os.name == 'nt':  # Windows系统
+                                subprocess.run(['rmdir', '/s', '/q', target_path], shell=True, check=True, timeout=30)
+                            else:  # Unix/Linux系统
+                                subprocess.run(['rm', '-rf', target_path], check=True, timeout=30)
+                            break
+                        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+                            # 如果还是失败，返回错误信息
+                            return f"同步失败 {repo_name}: 无法删除目标目录（权限不足）", None
+                    else:
+                        import time
+                        time.sleep(1)  # 等待1秒后重试
         
         # 复制整个代码库
         shutil.copytree(repo_path, target_path)
