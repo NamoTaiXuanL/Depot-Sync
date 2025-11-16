@@ -710,18 +710,39 @@ class CodeScanner:
             if os.path.exists(self.global_config_file):
                 with open(self.global_config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
+                    
                     # 设置最后使用的同步路径
-                    if 'last_sync_path' in config:
+                    if 'last_sync_path' in config and config['last_sync_path']:
                         self.sync_path = config['last_sync_path']
                         self.sync_label.config(text=f"同步到: {self.sync_path}", foreground="black")
                         self.sync_start_button.config(state='normal')
                         
                         # 加载该路径的历史记录
                         self.load_history_for_path(self.sync_path)
+                    
+                    # 恢复选择的文件夹
+                    if 'last_scan_folders' in config and config['last_scan_folders']:
+                        self.selected_folders = config['last_scan_folders']
+                        # 更新文件夹选择显示
+                        if len(self.selected_folders) <= 3:
+                            folder_names = "\n".join([os.path.basename(f) for f in self.selected_folders])
+                            display_text = f"已选择 {len(self.selected_folders)} 个文件夹:\n{folder_names}"
+                        else:
+                            folder_names = "\n".join([os.path.basename(f) for f in self.selected_folders[:3]])
+                            display_text = f"已选择 {len(self.selected_folders)} 个文件夹:\n{folder_names}\n...（还有{len(self.selected_folders)-3}个）"
+                        self.folder_label.config(text=display_text, foreground="black")
+                        
+                        # 启用文件夹选择选项
+                        self.select_folders_var.set(True)
+                        self.scan_all_var.set(False)
+                        self.folder_button.config(state='normal')
                         
                         # 如果有扫描结果数据，显示代码库信息
                         if hasattr(self, 'repository_tree') and self.repository_tree:
                             self.show_repository_info()
+                        
+                        # 显示同步路径代码库信息
+                        self.show_sync_repository_info()
                         
         except Exception as e:
             self.update_result(f"加载全局配置失败: {e}")
