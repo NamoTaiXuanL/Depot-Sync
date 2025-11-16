@@ -165,11 +165,11 @@ class CodeScanner:
         os.makedirs(self.global_config_dir, exist_ok=True)
         self.global_config_file = os.path.join(self.global_config_dir, "scanner_config.json")
         
-        # 加载全局配置
-        self.load_global_config()
-        
         # 创建界面组件
         self.create_widgets()
+        
+        # 加载全局配置（在界面创建完成后）
+        self.load_global_config()
         
     def create_widgets(self):
         # 主框架
@@ -309,23 +309,72 @@ class CodeScanner:
         
     def scan_drives(self, scan_paths):
         try:
-            git_repos = []
+            # 使用新的树状结构扫描方法
+            repository_tree = self.scan_repository_tree(scan_paths)
             
-            for path in scan_paths:
-                self.update_result(f"扫描路径: {path}")
-                
-                # 遍历路径查找.git文件夹
-                for root_dir, dirs, files in os.walk(path):
-                    if '.git' in dirs:
-                        git_path = os.path.join(root_dir, '.git')
-                        git_repos.append(root_dir)
-                        self.update_result(f"发现代码库: {root_dir}")
+            # 提取所有代码库路径（平面列表，保持向后兼容）
+            git_repos = list(repository_tree.keys())
+            
+            # 保存树状结构信息
+            self.repository_tree = repository_tree
             
             # 扫描完成
             self.scan_complete(git_repos)
             
         except Exception as e:
             self.scan_complete([], str(e))
+    
+    def scan_repository_tree(self, scan_paths):
+        # 扫描代码库树状结构
+        repository_tree = {}
+        
+        for path in scan_paths:
+            self.update_result(f"扫描路径: {path}")
+            
+            # 递归扫描该路径下的所有代码库
+            self._scan_repository_recursive(path, None, repository_tree)
+        
+        return repository_tree
+    
+    def _scan_repository_recursive(self, current_path, parent_path, repository_tree):
+        # 递归扫描代码库，建立树状结构
+        
+        # 检查当前路径是否是代码库
+        git_path = os.path.join(current_path, '.git')
+        is_repository = os.path.exists(git_path) and os.path.isdir(git_path)
+        
+        if is_repository:
+            # 当前路径是代码库
+            repo_name = os.path.basename(current_path)
+            
+            # 添加到树状结构
+            repository_tree[current_path] = {
+                'name': repo_name,
+                'path': current_path,
+                'parent': parent_path,
+                'children': [],
+                'is_root': parent_path is None
+            }
+            
+            # 如果存在父代码库，建立父子关系
+            if parent_path and parent_path in repository_tree:
+                repository_tree[parent_path]['children'].append(current_path)
+            
+            self.update_result(f"发现代码库: {current_path} (父: {parent_path or '根'})")
+            
+            # 更新父路径为当前代码库（子代码库应该以当前代码库为父）
+            parent_path = current_path
+        
+        # 递归扫描子目录（跳过.git目录）
+        try:
+            for item in os.listdir(current_path):
+                item_path = os.path.join(current_path, item)
+                if os.path.isdir(item_path) and item != '.git':
+                    # 继续递归扫描
+                    self._scan_repository_recursive(item_path, parent_path, repository_tree)
+        except PermissionError:
+            # 跳过权限不足的目录
+            pass
     
     def start_sync(self):
         # 开始同步
