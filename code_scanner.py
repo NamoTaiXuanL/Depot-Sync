@@ -149,7 +149,7 @@ class CodeScanner:
     def __init__(self, root):
         self.root = root
         self.root.title("代码库扫描工具")
-        self.root.geometry("1000x700")
+        self.root.geometry("1200x700")
         
         # 同步信息存储
         self.sync_info = {}
@@ -172,9 +172,26 @@ class CodeScanner:
         self.load_global_config()
         
     def create_widgets(self):
-        # 主框架
+        # 主框架（左侧）
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # 代码库信息框架（右侧）
+        self.info_frame = ttk.LabelFrame(self.root, text="代码库信息", padding="10")
+        self.info_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10), pady=10)
+        
+        # 代码库信息显示区域
+        self.repo_info_text = tk.Text(self.info_frame, height=30, width=30, wrap=tk.WORD)
+        self.repo_info_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # 信息区域滚动条
+        info_scrollbar = ttk.Scrollbar(self.info_frame, orient="vertical", command=self.repo_info_text.yview)
+        info_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        self.repo_info_text.configure(yscrollcommand=info_scrollbar.set)
+        
+        # 配置信息区域网格权重
+        self.info_frame.columnconfigure(0, weight=1)
+        self.info_frame.rowconfigure(0, weight=1)
         
         # 标题
         title_label = ttk.Label(main_frame, text="代码库扫描工具", font=("Arial", 16))
@@ -240,6 +257,11 @@ class CodeScanner:
         main_frame.rowconfigure(4, weight=1)
         folder_frame.columnconfigure(1, weight=1)
         sync_frame.columnconfigure(1, weight=1)
+        
+        # 配置根窗口网格权重
+        self.root.columnconfigure(0, weight=3)
+        self.root.columnconfigure(1, weight=1)
+        self.root.rowconfigure(0, weight=1)
         
     def toggle_folder_selection(self):
         # 切换文件夹选择状态
@@ -649,6 +671,10 @@ class CodeScanner:
                         # 加载该路径的历史记录
                         self.load_history_for_path(self.sync_path)
                         
+                        # 如果有扫描结果数据，显示代码库信息
+                        if hasattr(self, 'repository_tree') and self.repository_tree:
+                            self.show_repository_info()
+                        
         except Exception as e:
             self.update_result(f"加载全局配置失败: {e}")
 
@@ -689,6 +715,66 @@ class CodeScanner:
         else:
             self.update_result("\n暂无同步历史记录")
 
+    def show_repository_info(self):
+        # 显示代码库信息到右侧面板
+        if not hasattr(self, 'repository_tree') or not self.repository_tree:
+            self.repo_info_text.delete(1.0, tk.END)
+            self.repo_info_text.insert(tk.END, "暂无代码库信息\n请先进行扫描")
+            return
+        
+        try:
+            info_text = "代码库信息摘要\n" + "="*30 + "\n\n"
+            
+            # 统计根代码库和子代码库数量
+            root_repos = []
+            sub_repos = []
+            
+            for repo_path, repo_info in self.repository_tree.items():
+                if repo_info.get('is_root', True):
+                    root_repos.append(repo_path)
+                else:
+                    sub_repos.append(repo_path)
+            
+            info_text += f"根代码库: {len(root_repos)} 个\n"
+            info_text += f"子代码库: {len(sub_repos)} 个\n"
+            info_text += f"总计: {len(root_repos) + len(sub_repos)} 个代码库\n\n"
+            
+            # 显示根代码库列表
+            if root_repos:
+                info_text += "根代码库列表:\n" + "-"*20 + "\n"
+                for repo_path in root_repos[:10]:  # 最多显示10个
+                    repo_name = os.path.basename(repo_path)
+                    info_text += f"• {repo_name}\n"
+                
+                if len(root_repos) > 10:
+                    info_text += f"... 还有 {len(root_repos) - 10} 个\n"
+                info_text += "\n"
+            
+            # 显示树状结构信息
+            info_text += "代码库树状结构:\n" + "-"*20 + "\n"
+            for repo_path, repo_info in list(self.repository_tree.items())[:15]:  # 最多显示15个
+                repo_name = os.path.basename(repo_path)
+                level = repo_info.get('level', 0)
+                parent_path = repo_info.get('parent_path', '')
+                
+                indent = "  " * level
+                if level == 0:
+                    info_text += f"{indent}📁 {repo_name} (根)\n"
+                else:
+                    parent_name = os.path.basename(parent_path) if parent_path else "未知"
+                    info_text += f"{indent}└── 📁 {repo_name} (子, 父: {parent_name})\n"
+            
+            if len(self.repository_tree) > 15:
+                info_text += f"... 还有 {len(self.repository_tree) - 15} 个代码库\n"
+            
+            # 更新信息显示区域
+            self.repo_info_text.delete(1.0, tk.END)
+            self.repo_info_text.insert(tk.END, info_text)
+            
+        except Exception as e:
+            self.repo_info_text.delete(1.0, tk.END)
+            self.repo_info_text.insert(tk.END, f"显示代码库信息时出错:\n{str(e)}")
+
     def get_available_drives(self):
         # 获取Windows系统下的所有驱动器
         drives = []
@@ -714,10 +800,14 @@ class CodeScanner:
             
             if not git_repos:
                 self.result_text.insert(tk.END, "未发现任何代码库")
+                # 清空代码库信息显示
+                self.show_repository_info()
             else:
                 self.result_text.insert(tk.END, f"\n扫描完成! 共发现 {len(git_repos)} 个代码库")
                 # 保存扫描结果用于同步
                 self.git_repos = git_repos
+                # 显示代码库信息
+                self.show_repository_info()
         
         self.root.after(0, complete)
 
