@@ -11,94 +11,139 @@ from pathlib import Path
 from datetime import datetime
 
 def calculate_file_hash(file_path):
-    # 计算文件的MD5哈希值
+    # 计算文件的MD5哈希值（快速模式）
     hash_md5 = hashlib.md5()
     try:
-        with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)
+        # 使用文件大小和修改时间作为快速哈希（避免读取大文件内容）
+        stat = os.stat(file_path)
+        # 结合文件大小和修改时间生成快速哈希
+        hash_data = f"{stat.st_size}:{stat.st_mtime}".encode()
+        hash_md5.update(hash_data)
         return hash_md5.hexdigest()
     except Exception:
         return None
 
-def calculate_directory_hash(directory_path):
-    # 计算目录的哈希值（基于所有文件的哈希值）
-    if not os.path.exists(directory_path):
-        return None
+def scan_repository_files(repo_path):
+    # 扫描代码库中的所有文件并计算哈希
+    file_hashes = {}
+    if not os.path.exists(repo_path):
+        return file_hashes
     
-    hash_values = []
-    for root, dirs, files in os.walk(directory_path):
+    for root, dirs, files in os.walk(repo_path):
+        # 跳过.git目录（版本控制文件不需要同步）
+        if '.git' in dirs:
+            dirs.remove('.git')
+        
         for file in files:
             file_path = os.path.join(root, file)
+            rel_path = os.path.relpath(file_path, repo_path)
             file_hash = calculate_file_hash(file_path)
             if file_hash:
-                # 包含相对路径信息，确保文件移动后哈希值不同
-                rel_path = os.path.relpath(file_path, directory_path)
-                hash_values.append(f"{rel_path}:{file_hash}")
+                file_hashes[rel_path] = file_hash
     
-    if not hash_values:
-        return None
-    
-    # 排序确保一致性
-    hash_values.sort()
-    combined_hash = hashlib.md5("".join(hash_values).encode()).hexdigest()
-    return combined_hash
+    return file_hashes
 
 def sync_repository_task(repo_path, target_path, sync_info=None):
-    # 完全独立的同步任务函数，支持增量更新
+    # 文件级别的智能同步任务函数
     try:
         repo_name = os.path.basename(repo_path)
         
-        # 计算源目录的当前哈希值
-        current_hash = calculate_directory_hash(repo_path)
+        # 扫描源代码库中的所有文件
+        current_files = scan_repository_files(repo_path)
         
-        # 检查是否需要同步（增量更新逻辑）
+        # 检查是否需要同步（文件级别增量更新）
         if sync_info and repo_name in sync_info:
-            last_hash = sync_info[repo_name].get("hash")
-            if last_hash == current_hash:
-                # 哈希值相同，无需同步
+            last_files = sync_info[repo_name].get("files", {})
+            
+            # 比较文件变化
+            changed_files = []
+            new_files = []
+            deleted_files = []
+            
+            # 检查修改和新增的文件
+            for file_path, current_hash in current_files.items():
+                if file_path not in last_files:
+                    new_files.append(file_path)
+                elif last_files[file_path] != current_hash:
+                    changed_files.append(file_path)
+            
+            # 检查删除的文件
+            for file_path in last_files:
+                if file_path not in current_files:
+                    deleted_files.append(file_path)
+            
+            # 如果没有变化，跳过同步
+            if not changed_files and not new_files and not deleted_files:
                 return f"跳过同步（无变化）: {repo_name}", None
+            
+            # 执行增量同步
+            sync_count = 0
+            
+            # 确保目标目录存在
+            os.makedirs(target_path, exist_ok=True)
+            
+            # 复制新增和修改的文件
+            for file_path in new_files + changed_files:
+                src_file = os.path.join(repo_path, file_path)
+                dst_file = os.path.join(target_path, file_path)
+                
+                # 确保目标目录存在
+                os.makedirs(os.path.dirname(dst_file), exist_ok=True)
+                
+                # 复制文件
+                shutil.copy2(src_file, dst_file)
+                sync_count += 1
+            
+            # 删除已删除的文件
+            for file_path in deleted_files:
+                dst_file = os.path.join(target_path, file_path)
+                if os.path.exists(dst_file):
+                    os.remove(dst_file)
+                    sync_count += 1
+            
+            # 清理空目录
+            cleanup_empty_directories(target_path)
+            
+            sync_result = {
+                "files": current_files,
+                "last_sync": datetime.now().isoformat(),
+                "source_path": repo_path,
+                "target_path": target_path,
+                "sync_count": sync_count
+            }
+            
+            return f"增量同步成功: {repo_name} ({sync_count}个文件)", sync_result
         
-        # 如果目标路径存在，先删除（处理权限问题）
-        if os.path.exists(target_path):
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    shutil.rmtree(target_path)
-                    break  # 删除成功，跳出循环
-                except PermissionError:
-                    if attempt == max_retries - 1:  # 最后一次尝试
-                        # 如果权限不足，尝试使用更强大的删除方法
-                        import subprocess
-                        try:
-                            # 使用系统命令强制删除
-                            if os.name == 'nt':  # Windows系统
-                                subprocess.run(['rmdir', '/s', '/q', target_path], shell=True, check=True, timeout=30)
-                            else:  # Unix/Linux系统
-                                subprocess.run(['rm', '-rf', target_path], check=True, timeout=30)
-                            break
-                        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-                            # 如果还是失败，返回错误信息
-                            return f"同步失败 {repo_name}: 无法删除目标目录（权限不足）", None
-                    else:
-                        import time
-                        time.sleep(1)  # 等待1秒后重试
-        
-        # 复制整个代码库
-        shutil.copytree(repo_path, target_path)
-        
-        # 返回同步结果和哈希信息
-        sync_result = {
-            "hash": current_hash,
-            "last_sync": datetime.now().isoformat(),
-            "source_path": repo_path,
-            "target_path": target_path
-        }
-        
-        return f"成功同步: {repo_name}", sync_result
+        else:
+            # 首次同步或没有历史信息，执行完整同步
+            if os.path.exists(target_path):
+                shutil.rmtree(target_path)
+            
+            shutil.copytree(repo_path, target_path)
+            
+            sync_result = {
+                "files": current_files,
+                "last_sync": datetime.now().isoformat(),
+                "source_path": repo_path,
+                "target_path": target_path,
+                "sync_count": len(current_files)
+            }
+            
+            return f"完整同步成功: {repo_name} ({len(current_files)}个文件)", sync_result
         
     except Exception as e:
         return f"同步失败 {os.path.basename(repo_path)}: {e}", None
+
+def cleanup_empty_directories(directory):
+    # 清理空目录
+    for root, dirs, files in os.walk(directory, topdown=False):
+        for dir_name in dirs:
+            dir_path = os.path.join(root, dir_name)
+            try:
+                if not os.listdir(dir_path):  # 目录为空
+                    os.rmdir(dir_path)
+            except OSError:
+                pass  # 目录不为空或权限问题，跳过
 
 class CodeScanner:
     def __init__(self, root):
