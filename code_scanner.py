@@ -737,15 +737,51 @@ class CodeScanner:
                         self.scan_all_var.set(False)
                         self.folder_button.config(state='normal')
                         
-                        # 如果有扫描结果数据，显示代码库信息
-                        if hasattr(self, 'repository_tree') and self.repository_tree:
-                            self.show_repository_info()
+                        # 自动扫描选择的文件夹以获取代码库信息
+                        self.auto_scan_selected_folders()
                         
                         # 显示同步路径代码库信息
                         self.show_sync_repository_info()
                         
         except Exception as e:
             self.update_result(f"加载全局配置失败: {e}")
+    
+    def auto_scan_selected_folders(self):
+        # 自动扫描选择的文件夹以获取代码库信息
+        if hasattr(self, 'selected_folders') and self.selected_folders:
+            # 在新线程中执行自动扫描
+            thread = threading.Thread(target=self._perform_auto_scan)
+            thread.daemon = True
+            thread.start()
+    
+    def _perform_auto_scan(self):
+        # 执行自动扫描的实际逻辑
+        try:
+            # 使用新的树状结构扫描方法
+            repository_tree = self.scan_repository_tree(self.selected_folders)
+            
+            # 保存树状结构信息
+            self.repository_tree = repository_tree
+            
+            # 提取所有代码库路径（平面列表，保持向后兼容）
+            git_repos = list(repository_tree.keys())
+            
+            # 更新界面显示
+            self.root.after(0, lambda: self._update_after_auto_scan(git_repos))
+            
+        except Exception as e:
+            self.root.after(0, lambda: self.update_result(f"自动扫描失败: {e}"))
+    
+    def _update_after_auto_scan(self, git_repos):
+        # 自动扫描完成后的界面更新
+        if git_repos:
+            self.update_result(f"自动扫描完成! 共发现 {len(git_repos)} 个代码库")
+            # 显示代码库信息
+            self.show_repository_info()
+        else:
+            self.update_result("自动扫描完成! 未发现任何代码库")
+            # 清空代码库信息显示
+            self.show_repository_info()
 
     def save_global_config(self):
         # 保存全局配置文件
