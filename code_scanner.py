@@ -153,7 +153,18 @@ class CodeScanner:
         
         # 同步信息存储
         self.sync_info = {}
-        self.json_config_path = None
+        self.main_index_path = None
+        self.repo_json_dir = None
+        
+        # 同步历史记录
+        self.sync_history = {}
+        self.history_dir = None
+        
+        # 配置文件路径
+        self.config_file = os.path.join(os.path.dirname(__file__), "scanner_config.json")
+        
+        # 加载配置
+        self.load_config()
         
         # 创建界面组件
         self.create_widgets()
@@ -266,6 +277,10 @@ class CodeScanner:
             self.sync_path = sync_path
             self.sync_label.config(text=f"同步到: {sync_path}", foreground="black")
             self.sync_start_button.config(state='normal')
+            
+            # 保存配置并加载历史记录
+            self.save_config()
+            self.load_history_for_path(sync_path)
     
     def start_scan(self):
         # 禁用扫描按钮，启动进度条
@@ -380,13 +395,21 @@ class CodeScanner:
                         # 更新同步信息
                         if sync_result:
                             self.sync_info[repo_name] = sync_result
-                            
+                            # 添加成功同步历史记录
+                            self.add_sync_history(repo_name, sync_result, "success")
+                        
                     except Exception as e:
-                        self.update_result(f"[{completed_count}/{len(sync_tasks)}] 同步失败 {repo_name}: {e}")
+                        error_msg = f"[{completed_count}/{len(sync_tasks)}] 同步失败 {repo_name}: {e}"
+                        self.update_result(error_msg)
+                        # 添加失败同步历史记录
+                        self.add_sync_history(repo_name, error_msg, "failed")
             
             # 保存同步信息
             self.save_sync_info()
             self.update_result("同步完成!")
+            
+            # 显示同步历史摘要
+            self.show_sync_history_summary()
             self.sync_complete()
             
         except Exception as e:
@@ -413,6 +436,10 @@ class CodeScanner:
         # 代码库JSON文件目录
         self.repo_json_dir = os.path.join(json_dir, "repos")
         os.makedirs(self.repo_json_dir, exist_ok=True)
+        
+        # 同步历史记录目录
+        self.history_dir = os.path.join(json_dir, "history")
+        os.makedirs(self.history_dir, exist_ok=True)
         
         self.sync_info = {}
         
@@ -469,6 +496,131 @@ class CodeScanner:
                 
             except Exception as e:
                 self.update_result(f"保存同步信息失败: {e}")
+
+    def add_sync_history(self, repo_name, sync_result, status="success"):
+        # 添加同步历史记录
+        if not self.history_dir:
+            return
+        
+        try:
+            history_file = os.path.join(self.history_dir, f"{repo_name}_history.json")
+            
+            # 加载现有历史记录
+            history_data = []
+            if os.path.exists(history_file):
+                with open(history_file, 'r', encoding='utf-8') as f:
+                    history_data = json.load(f)
+            
+            # 添加新的历史记录
+            history_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "status": status,
+                "sync_count": sync_result.get("sync_count", 0) if status == "success" else 0,
+                "file_count": len(sync_result.get("files", {})) if status == "success" else 0,
+                "message": sync_result if isinstance(sync_result, str) else "同步完成"
+            }
+            
+            # 保留最近100条记录
+            history_data.append(history_entry)
+            if len(history_data) > 100:
+                history_data = history_data[-100:]
+            
+            # 保存历史记录
+            with open(history_file, 'w', encoding='utf-8') as f:
+                json.dump(history_data, f, ensure_ascii=False, indent=2)
+                
+        except Exception as e:
+            self.update_result(f"保存同步历史记录失败: {e}")
+
+    def load_sync_history(self, repo_name):
+        # 加载同步历史记录
+        if not self.history_dir:
+            return []
+        
+        try:
+            history_file = os.path.join(self.history_dir, f"{repo_name}_history.json")
+            if os.path.exists(history_file):
+                with open(history_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            self.update_result(f"加载同步历史记录失败: {e}")
+        
+        return []
+
+    def get_all_sync_history(self):
+        # 获取所有代码库的同步历史摘要
+        history_summary = {}
+        if not self.history_dir:
+            return history_summary
+        
+        try:
+            for file_name in os.listdir(self.history_dir):
+                if file_name.endswith('_history.json'):
+                    repo_name = file_name.replace('_history.json', '')
+                    history_data = self.load_sync_history(repo_name)
+                    if history_data:
+                        history_summary[repo_name] = {
+                            "last_sync": history_data[-1]["timestamp"] if history_data else "",
+                            "total_syncs": len(history_data),
+                            "last_status": history_data[-1]["status"] if history_data else ""
+                        }
+        except Exception as e:
+            self.update_result(f"获取历史记录摘要失败: {e}")
+        
+        return history_summary
+
+    def load_config(self):
+        # 加载配置文件
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    # 设置最后使用的同步路径
+                    if 'last_sync_path' in config:
+                        self.sync_path = config['last_sync_path']
+                        self.sync_label.config(text=f"同步到: {self.sync_path}", foreground="black")
+                        self.sync_start_button.config(state='normal')
+                        
+                        # 加载该路径的历史记录
+                        self.load_history_for_path(self.sync_path)
+                        
+        except Exception as e:
+            self.update_result(f"加载配置失败: {e}")
+
+    def save_config(self):
+        # 保存配置文件
+        try:
+            config = {
+                'last_sync_path': self.sync_path if hasattr(self, 'sync_path') and self.sync_path else ''
+            }
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            self.update_result(f"保存配置失败: {e}")
+
+    def load_history_for_path(self, sync_path):
+        # 为指定路径加载历史记录
+        if not sync_path:
+            return
+        
+        # 设置历史记录目录
+        json_dir = os.path.join(sync_path, "Depot_Sync", "JSON")
+        self.history_dir = os.path.join(json_dir, "history")
+        
+        # 显示历史摘要
+        self.show_sync_history_summary()
+
+    def show_sync_history_summary(self):
+        # 显示同步历史摘要
+        history_summary = self.get_all_sync_history()
+        if history_summary:
+            self.update_result("\n=== 同步历史摘要 ===")
+            for repo_name, summary in history_summary.items():
+                last_sync = summary["last_sync"][:19] if summary["last_sync"] else "从未同步"
+                status_emoji = "✅" if summary["last_status"] == "success" else "❌"
+                self.update_result(f"{status_emoji} {repo_name}: {summary['total_syncs']}次同步, 最后同步: {last_sync}")
+        else:
+            self.update_result("\n暂无同步历史记录")
 
     def get_available_drives(self):
         # 获取Windows系统下的所有驱动器
