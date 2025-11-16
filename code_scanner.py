@@ -5,11 +5,60 @@ import threading
 import multiprocessing
 import shutil
 import concurrent.futures
+import json
+import hashlib
 from pathlib import Path
+from datetime import datetime
 
-def sync_repository_task(repo_path, target_path):
-    # 完全独立的同步任务函数，不包含任何类引用
+def calculate_file_hash(file_path):
+    # 计算文件的MD5哈希值
+    hash_md5 = hashlib.md5()
     try:
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_md5.update(chunk)
+        return hash_md5.hexdigest()
+    except Exception:
+        return None
+
+def calculate_directory_hash(directory_path):
+    # 计算目录的哈希值（基于所有文件的哈希值）
+    if not os.path.exists(directory_path):
+        return None
+    
+    hash_values = []
+    for root, dirs, files in os.walk(directory_path):
+        for file in files:
+            file_path = os.path.join(root, file)
+            file_hash = calculate_file_hash(file_path)
+            if file_hash:
+                # 包含相对路径信息，确保文件移动后哈希值不同
+                rel_path = os.path.relpath(file_path, directory_path)
+                hash_values.append(f"{rel_path}:{file_hash}")
+    
+    if not hash_values:
+        return None
+    
+    # 排序确保一致性
+    hash_values.sort()
+    combined_hash = hashlib.md5("".join(hash_values).encode()).hexdigest()
+    return combined_hash
+
+def sync_repository_task(repo_path, target_path, sync_info=None):
+    # 完全独立的同步任务函数，支持增量更新
+    try:
+        repo_name = os.path.basename(repo_path)
+        
+        # 计算源目录的当前哈希值
+        current_hash = calculate_directory_hash(repo_path)
+        
+        # 检查是否需要同步（增量更新逻辑）
+        if sync_info and repo_name in sync_info:
+            last_hash = sync_info[repo_name].get("hash")
+            if last_hash == current_hash:
+                # 哈希值相同，无需同步
+                return f"跳过同步（无变化）: {repo_name}", None
+        
         # 如果目标路径存在，先删除
         if os.path.exists(target_path):
             shutil.rmtree(target_path)
@@ -17,16 +66,28 @@ def sync_repository_task(repo_path, target_path):
         # 复制整个代码库
         shutil.copytree(repo_path, target_path)
         
-        return f"成功同步: {os.path.basename(repo_path)}"
+        # 返回同步结果和哈希信息
+        sync_result = {
+            "hash": current_hash,
+            "last_sync": datetime.now().isoformat(),
+            "source_path": repo_path,
+            "target_path": target_path
+        }
+        
+        return f"成功同步: {repo_name}", sync_result
         
     except Exception as e:
-        return f"同步失败 {os.path.basename(repo_path)}: {e}"
+        return f"同步失败 {os.path.basename(repo_path)}: {e}", None
 
 class CodeScanner:
     def __init__(self, root):
         self.root = root
         self.root.title("代码库扫描工具")
         self.root.geometry("1000x700")
+        
+        # 同步信息存储
+        self.sync_info = {}
+        self.json_config_path = None
         
         # 创建界面组件
         self.create_widgets()
@@ -208,6 +269,9 @@ class CodeScanner:
             
             self.update_result(f"同步到: {sync_base}")
             
+            # 加载同步信息
+            self.load_sync_info(self.sync_path)
+            
             # 使用进程池进行多进程同步
             cpu_count = multiprocessing.cpu_count()
             max_workers = min(cpu_count * 2, len(self.git_repos))
@@ -223,15 +287,20 @@ class CodeScanner:
             
             # 显示所有待同步任务
             for repo_path, target_path in sync_tasks:
-                self.update_result(f"待同步: {os.path.basename(repo_path)} -> {target_path}")
+                repo_name = os.path.basename(repo_path)
+                if repo_name in self.sync_info:
+                    self.update_result(f"待同步（增量）: {repo_name}")
+                else:
+                    self.update_result(f"待同步（新增）: {repo_name}")
             
             # 使用进程池执行同步
             with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
                 futures = {}
                 for repo_path, target_path in sync_tasks:
-                    # 使用完全独立的同步函数
-                    future = executor.submit(sync_repository_task, repo_path, target_path)
-                    futures[future] = os.path.basename(repo_path)
+                    repo_name = os.path.basename(repo_path)
+                    # 使用完全独立的同步函数，传递同步信息
+                    future = executor.submit(sync_repository_task, repo_path, target_path, self.sync_info)
+                    futures[future] = repo_name
                 
                 # 等待所有任务完成并更新进度
                 completed_count = 0
@@ -239,11 +308,18 @@ class CodeScanner:
                     repo_name = futures[future]
                     completed_count += 1
                     try:
-                        result = future.result()
+                        result, sync_result = future.result()
                         self.update_result(f"[{completed_count}/{len(sync_tasks)}] {result}")
+                        
+                        # 更新同步信息
+                        if sync_result:
+                            self.sync_info[repo_name] = sync_result
+                            
                     except Exception as e:
                         self.update_result(f"[{completed_count}/{len(sync_tasks)}] 同步失败 {repo_name}: {e}")
             
+            # 保存同步信息
+            self.save_sync_info()
             self.update_result("同步完成!")
             self.sync_complete()
             
@@ -260,7 +336,37 @@ class CodeScanner:
             self.sync_start_button.config(state='normal')
         
         self.root.after(0, complete)
-    
+
+    def load_sync_info(self, sync_path):
+        # 从JSON文件加载同步信息
+        json_dir = os.path.join(sync_path, "Depot_Sync", "JSON")
+        os.makedirs(json_dir, exist_ok=True)
+        
+        # 为每个代码库创建单独的JSON文件
+        self.json_config_path = os.path.join(json_dir, "sync_info.json")
+        
+        if os.path.exists(self.json_config_path):
+            try:
+                with open(self.json_config_path, 'r', encoding='utf-8') as f:
+                    self.sync_info = json.load(f)
+                self.update_result(f"已加载同步信息: {len(self.sync_info)} 个代码库记录")
+            except Exception as e:
+                self.update_result(f"加载同步信息失败: {e}")
+                self.sync_info = {}
+        else:
+            self.sync_info = {}
+            self.update_result("未找到同步信息文件，将创建新文件")
+
+    def save_sync_info(self):
+        # 保存同步信息到JSON文件
+        if self.json_config_path:
+            try:
+                with open(self.json_config_path, 'w', encoding='utf-8') as f:
+                    json.dump(self.sync_info, f, ensure_ascii=False, indent=2)
+                self.update_result("同步信息已保存")
+            except Exception as e:
+                self.update_result(f"保存同步信息失败: {e}")
+
     def get_available_drives(self):
         # 获取Windows系统下的所有驱动器
         drives = []

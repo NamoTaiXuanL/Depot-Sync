@@ -1,0 +1,79 @@
+# 忽略记录和文档目录
+txt/
+记录/
+workspace/
+bak/
+log/
+temp/
+tmp/
+.DATA/
+MD/
+.Timeline/
+ChangeRecords/
+.agents/
+.acx/
+tests/
+Archive/
+BAT/
+
+# 忽略下载的安装文件
+*.exe
+*.msi
+*.dmg
+*.pkg
+
+# 忽略Python缓存文件
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# 忽略虚拟环境
+venv/
+env/
+ENV/
+.venv/
+
+# 忽略配置和密钥文件
+config_local.json
+*.key
+*.pem
+.env
+.env.local
+config.json
+# 忽略IDE和编辑器文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.sublime-project
+.sublime-workspace
+
+# 忽略系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 忽略日志文件
+*.log
+logs/
+
+# 忽略数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 忽略压缩文件
+*.zip
+*.tar.gz
+*.rar
+*.7z
+config.json
