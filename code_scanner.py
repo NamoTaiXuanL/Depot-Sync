@@ -407,15 +407,26 @@ class CodeScanner:
             # 加载同步信息
             self.load_sync_info(self.sync_path)
             
+            # 只同步根代码库（避免重复同步子代码库）
+            root_repos = []
+            if hasattr(self, 'repository_tree') and self.repository_tree:
+                # 使用树状结构，只同步根代码库
+                for repo_path, repo_info in self.repository_tree.items():
+                    if repo_info.get('is_root', True):  # 只同步根代码库
+                        root_repos.append(repo_path)
+            else:
+                # 回退到旧的平面列表方式
+                root_repos = self.git_repos
+            
             # 使用进程池进行多进程同步
             cpu_count = multiprocessing.cpu_count()
-            max_workers = min(cpu_count * 2, len(self.git_repos))
+            max_workers = min(cpu_count * 2, len(root_repos))
             
-            self.update_result(f"使用 {max_workers} 个进程进行同步...")
+            self.update_result(f"使用 {max_workers} 个进程同步 {len(root_repos)} 个根代码库...")
             
             # 准备同步任务
             sync_tasks = []
-            for repo_path in self.git_repos:
+            for repo_path in root_repos:
                 repo_name = os.path.basename(repo_path)
                 target_path = os.path.join(sync_base, repo_name)
                 sync_tasks.append((repo_path, target_path))
