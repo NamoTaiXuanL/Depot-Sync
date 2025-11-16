@@ -180,18 +180,42 @@ class CodeScanner:
         self.info_frame = ttk.LabelFrame(self.root, text="代码库信息", padding="10")
         self.info_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10), pady=10)
         
-        # 代码库信息显示区域
-        self.repo_info_text = tk.Text(self.info_frame, height=30, width=30, wrap=tk.WORD)
-        self.repo_info_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # 创建选项卡控件
+        self.notebook = ttk.Notebook(self.info_frame)
+        self.notebook.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # 源代码库信息选项卡
+        self.source_frame = ttk.Frame(self.notebook, padding="5")
+        self.notebook.add(self.source_frame, text="源代码库")
+        
+        # 同步代码库信息选项卡
+        self.sync_frame = ttk.Frame(self.notebook, padding="5")
+        self.notebook.add(self.sync_frame, text="同步代码库")
+        
+        # 源代码库信息显示区域
+        self.source_info_text = tk.Text(self.source_frame, height=25, width=30, wrap=tk.WORD)
+        self.source_info_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # 同步代码库信息显示区域
+        self.sync_info_text = tk.Text(self.sync_frame, height=25, width=30, wrap=tk.WORD)
+        self.sync_info_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # 信息区域滚动条
-        info_scrollbar = ttk.Scrollbar(self.info_frame, orient="vertical", command=self.repo_info_text.yview)
-        info_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
-        self.repo_info_text.configure(yscrollcommand=info_scrollbar.set)
+        source_scrollbar = ttk.Scrollbar(self.source_frame, orient="vertical", command=self.source_info_text.yview)
+        source_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        self.source_info_text.configure(yscrollcommand=source_scrollbar.set)
+        
+        sync_scrollbar = ttk.Scrollbar(self.sync_frame, orient="vertical", command=self.sync_info_text.yview)
+        sync_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        self.sync_info_text.configure(yscrollcommand=sync_scrollbar.set)
         
         # 配置信息区域网格权重
         self.info_frame.columnconfigure(0, weight=1)
         self.info_frame.rowconfigure(0, weight=1)
+        self.source_frame.columnconfigure(0, weight=1)
+        self.source_frame.rowconfigure(0, weight=1)
+        self.sync_frame.columnconfigure(0, weight=1)
+        self.sync_frame.rowconfigure(0, weight=1)
         
         # 标题
         title_label = ttk.Label(main_frame, text="代码库扫描工具", font=("Arial", 16))
@@ -243,20 +267,44 @@ class CodeScanner:
         self.progress = ttk.Progressbar(main_frame, mode='indeterminate')
         self.progress.grid(row=3, column=1, columnspan=3, pady=10, sticky=(tk.W, tk.E))
         
-        # 结果文本框
-        self.result_text = tk.Text(main_frame, height=20, width=90)
-        self.result_text.grid(row=4, column=0, columnspan=4, pady=10, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # 同步记录区域选项卡
+        self.sync_notebook = ttk.Notebook(main_frame)
+        self.sync_notebook.grid(row=4, column=0, columnspan=4, pady=10, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # 同步记录选项卡
+        self.sync_record_frame = ttk.Frame(self.sync_notebook, padding="5")
+        self.sync_notebook.add(self.sync_record_frame, text="同步记录")
+        
+        # 源代码库信息选项卡
+        self.source_info_frame = ttk.Frame(self.sync_notebook, padding="5")
+        self.sync_notebook.add(self.source_info_frame, text="源代码库信息")
+        
+        # 同步记录文本框
+        self.result_text = tk.Text(self.sync_record_frame, height=15, width=90)
+        self.result_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # 源代码库信息文本框
+        self.source_info_text_bottom = tk.Text(self.source_info_frame, height=15, width=90, wrap=tk.WORD)
+        self.source_info_text_bottom.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # 滚动条
-        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=self.result_text.yview)
-        scrollbar.grid(row=4, column=4, sticky=(tk.N, tk.S))
-        self.result_text.configure(yscrollcommand=scrollbar.set)
+        sync_scrollbar = ttk.Scrollbar(self.sync_record_frame, orient="vertical", command=self.result_text.yview)
+        sync_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        self.result_text.configure(yscrollcommand=sync_scrollbar.set)
+        
+        source_scrollbar = ttk.Scrollbar(self.source_info_frame, orient="vertical", command=self.source_info_text_bottom.yview)
+        source_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        self.source_info_text_bottom.configure(yscrollcommand=source_scrollbar.set)
         
         # 配置网格权重
         main_frame.columnconfigure(1, weight=1)
         main_frame.rowconfigure(4, weight=1)
         folder_frame.columnconfigure(1, weight=1)
         sync_frame.columnconfigure(1, weight=1)
+        self.sync_record_frame.columnconfigure(0, weight=1)
+        self.sync_record_frame.rowconfigure(0, weight=1)
+        self.source_info_frame.columnconfigure(0, weight=1)
+        self.source_info_frame.rowconfigure(0, weight=1)
         
         # 配置根窗口网格权重
         self.root.columnconfigure(0, weight=3)
@@ -716,14 +764,16 @@ class CodeScanner:
             self.update_result("\n暂无同步历史记录")
 
     def show_repository_info(self):
-        # 显示代码库信息到右侧面板
+        # 显示源代码库信息到源代码库选项卡（右侧）和底部源代码库信息选项卡
         if not hasattr(self, 'repository_tree') or not self.repository_tree:
-            self.repo_info_text.delete(1.0, tk.END)
-            self.repo_info_text.insert(tk.END, "暂无代码库信息\n请先进行扫描")
+            self.source_info_text.delete(1.0, tk.END)
+            self.source_info_text.insert(tk.END, "暂无源代码库信息\n请先进行扫描")
+            self.source_info_text_bottom.delete(1.0, tk.END)
+            self.source_info_text_bottom.insert(tk.END, "暂无源代码库信息\n请先进行扫描")
             return
         
         try:
-            info_text = "代码库信息摘要\n" + "="*30 + "\n\n"
+            info_text = "源代码库信息摘要\n" + "="*30 + "\n\n"
             
             # 统计根代码库和子代码库数量
             root_repos = []
@@ -754,8 +804,8 @@ class CodeScanner:
             info_text += "代码库树状结构:\n" + "-"*20 + "\n"
             for repo_path, repo_info in list(self.repository_tree.items())[:15]:  # 最多显示15个
                 repo_name = os.path.basename(repo_path)
-                level = repo_info.get('level', 0)
-                parent_path = repo_info.get('parent_path', '')
+                level = 0 if repo_info.get('is_root', True) else 1
+                parent_path = repo_info.get('parent', '')
                 
                 indent = "  " * level
                 if level == 0:
@@ -767,13 +817,64 @@ class CodeScanner:
             if len(self.repository_tree) > 15:
                 info_text += f"... 还有 {len(self.repository_tree) - 15} 个代码库\n"
             
-            # 更新信息显示区域
-            self.repo_info_text.delete(1.0, tk.END)
-            self.repo_info_text.insert(tk.END, info_text)
+            # 更新信息显示区域（右侧和底部）
+            self.source_info_text.delete(1.0, tk.END)
+            self.source_info_text.insert(tk.END, info_text)
+            self.source_info_text_bottom.delete(1.0, tk.END)
+            self.source_info_text_bottom.insert(tk.END, info_text)
             
         except Exception as e:
-            self.repo_info_text.delete(1.0, tk.END)
-            self.repo_info_text.insert(tk.END, f"显示代码库信息时出错:\n{str(e)}")
+            self.source_info_text.delete(1.0, tk.END)
+            self.source_info_text.insert(tk.END, f"显示源代码库信息时出错:\n{str(e)}")
+            self.source_info_text_bottom.delete(1.0, tk.END)
+            self.source_info_text_bottom.insert(tk.END, f"显示源代码库信息时出错:\n{str(e)}")
+
+    def show_sync_repository_info(self):
+        # 显示同步路径代码库信息到同步代码库选项卡
+        if not hasattr(self, 'sync_path') or not self.sync_path:
+            self.sync_info_text.delete(1.0, tk.END)
+            self.sync_info_text.insert(tk.END, "暂无同步路径信息\n请先选择同步路径")
+            return
+        
+        try:
+            sync_data_path = os.path.join(self.sync_path, "Depot_Sync", "Data")
+            if not os.path.exists(sync_data_path):
+                self.sync_info_text.delete(1.0, tk.END)
+                self.sync_info_text.insert(tk.END, f"同步路径数据不存在:\n{sync_data_path}")
+                return
+            
+            # 扫描同步路径中的代码库
+            sync_repos = []
+            for item in os.listdir(sync_data_path):
+                item_path = os.path.join(sync_data_path, item)
+                if os.path.isdir(item_path):
+                    git_path = os.path.join(item_path, '.git')
+                    if os.path.exists(git_path) and os.path.isdir(git_path):
+                        sync_repos.append(item_path)
+            
+            info_text = "同步路径代码库信息\n" + "="*30 + "\n\n"
+            info_text += f"同步路径: {self.sync_path}\n"
+            info_text += f"数据目录: {sync_data_path}\n\n"
+            info_text += f"已同步代码库: {len(sync_repos)} 个\n\n"
+            
+            if sync_repos:
+                info_text += "同步代码库列表:\n" + "-"*20 + "\n"
+                for repo_path in sync_repos[:15]:  # 最多显示15个
+                    repo_name = os.path.basename(repo_path)
+                    info_text += f"• {repo_name}\n"
+                
+                if len(sync_repos) > 15:
+                    info_text += f"... 还有 {len(sync_repos) - 15} 个\n"
+            else:
+                info_text += "暂无同步代码库\n"
+            
+            # 更新信息显示区域
+            self.sync_info_text.delete(1.0, tk.END)
+            self.sync_info_text.insert(tk.END, info_text)
+            
+        except Exception as e:
+            self.sync_info_text.delete(1.0, tk.END)
+            self.sync_info_text.insert(tk.END, f"显示同步代码库信息时出错:\n{str(e)}")
 
     def get_available_drives(self):
         # 获取Windows系统下的所有驱动器
