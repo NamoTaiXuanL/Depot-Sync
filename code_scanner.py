@@ -160,11 +160,13 @@ class CodeScanner:
         self.sync_history = {}
         self.history_dir = None
         
-        # 配置文件路径
-        self.config_file = os.path.join(os.path.dirname(__file__), "scanner_config.json")
+        # 全局配置路径
+        self.global_config_dir = "C:\\Users\\Administrator\\Documents\\Depot_Sync\\JSON"
+        os.makedirs(self.global_config_dir, exist_ok=True)
+        self.global_config_file = os.path.join(self.global_config_dir, "scanner_config.json")
         
-        # 加载配置
-        self.load_config()
+        # 加载全局配置
+        self.load_global_config()
         
         # 创建界面组件
         self.create_widgets()
@@ -266,6 +268,9 @@ class CodeScanner:
                 folder_names = "\n".join([os.path.basename(f) for f in self.selected_folders[:3]])
                 display_text = f"已选择 {len(self.selected_folders)} 个文件夹:\n{folder_names}\n...（还有{len(self.selected_folders)-3}个）"
             self.folder_label.config(text=display_text, foreground="black")
+            
+            # 保存全局配置
+            self.save_global_config()
     
     def select_sync_path(self):
         # 选择同步路径
@@ -278,8 +283,8 @@ class CodeScanner:
             self.sync_label.config(text=f"同步到: {sync_path}", foreground="black")
             self.sync_start_button.config(state='normal')
             
-            # 保存配置并加载历史记录
-            self.save_config()
+            # 保存全局配置并加载历史记录
+            self.save_global_config()
             self.load_history_for_path(sync_path)
     
     def start_scan(self):
@@ -569,11 +574,11 @@ class CodeScanner:
         
         return history_summary
 
-    def load_config(self):
-        # 加载配置文件
+    def load_global_config(self):
+        # 加载全局配置文件
         try:
-            if os.path.exists(self.config_file):
-                with open(self.config_file, 'r', encoding='utf-8') as f:
+            if os.path.exists(self.global_config_file):
+                with open(self.global_config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                     # 设置最后使用的同步路径
                     if 'last_sync_path' in config:
@@ -585,18 +590,20 @@ class CodeScanner:
                         self.load_history_for_path(self.sync_path)
                         
         except Exception as e:
-            self.update_result(f"加载配置失败: {e}")
+            self.update_result(f"加载全局配置失败: {e}")
 
-    def save_config(self):
-        # 保存配置文件
+    def save_global_config(self):
+        # 保存全局配置文件
         try:
             config = {
-                'last_sync_path': self.sync_path if hasattr(self, 'sync_path') and self.sync_path else ''
+                'last_sync_path': self.sync_path if hasattr(self, 'sync_path') and self.sync_path else '',
+                'last_scan_folders': self.selected_folders if hasattr(self, 'selected_folders') else [],
+                'last_update_time': datetime.now().isoformat()
             }
-            with open(self.config_file, 'w', encoding='utf-8') as f:
+            with open(self.global_config_file, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            self.update_result(f"保存配置失败: {e}")
+            self.update_result(f"保存全局配置失败: {e}")
 
     def load_history_for_path(self, sync_path):
         # 为指定路径加载历史记录
