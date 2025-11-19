@@ -9,6 +9,47 @@ import json
 import hashlib
 from pathlib import Path
 from datetime import datetime
+import subprocess
+import re
+
+def get_disk_uuid():
+    """获取硬盘分区UUID信息"""
+    cmd = 'powershell -Command "Get-Partition | Where-Object {$_.DriveLetter} | Select-Object DriveLetter, UniqueId"'
+    result = subprocess.run(cmd, capture_output=True, text=True, shell=True)
+    
+    if result.returncode != 0:
+        return []
+    
+    partitions = []
+    for line in result.stdout.strip().split('\n'):
+        line = line.strip()
+        if line and 'DriveLetter' not in line and '--------' not in line:
+            parts = line.split()
+            if len(parts) >= 2:
+                partitions.append((parts[0].strip(), ' '.join(parts[1:]).strip()))
+    
+    return partitions
+
+def get_drive_uuid(drive_path):
+    # 获取硬盘驱动器的UUID（使用PowerShell获取真实分区UUID）
+    try:
+        # 提取驱动器盘符（如 C:）
+        drive_letter = os.path.splitdrive(drive_path)[0].rstrip(':').upper()
+        
+        # 获取所有分区信息
+        partitions = get_disk_uuid()
+        
+        # 查找匹配的分区
+        for partition_letter, uuid in partitions:
+            if partition_letter.upper() == drive_letter:
+                # 使用分区UUID生成唯一标识
+                return hashlib.md5(uuid.encode()).hexdigest()[:16]
+        
+        # 如果未找到分区，使用原路径哈希作为备用方案
+        return hashlib.md5(drive_path.encode()).hexdigest()[:16]
+    except Exception:
+        # 发生异常时使用路径哈希（作为备用方案）
+        return hashlib.md5(drive_path.encode()).hexdigest()[:16]
 
 def calculate_file_hash(file_path):
     # 计算文件的MD5哈希值（快速模式）
@@ -164,6 +205,9 @@ class CodeScanner:
         self.global_config_dir = "C:\\Users\\Administrator\\Documents\\Depot_Sync\\JSON"
         os.makedirs(self.global_config_dir, exist_ok=True)
         self.global_config_file = os.path.join(self.global_config_dir, "scanner_config.json")
+        
+        # 驱动器UUID映射文件
+        self.drive_uuid_map_file = os.path.join(self.global_config_dir, "drive_uuid_map.json")
         
         # 创建界面组件
         self.create_widgets()
@@ -352,6 +396,10 @@ class CodeScanner:
             self.sync_path = sync_path
             self.sync_label.config(text=f"同步到: {sync_path}", foreground="black")
             self.sync_start_button.config(state='normal')
+            
+            # 获取驱动器UUID并保存映射
+            drive_uuid = get_drive_uuid(sync_path)
+            self.save_drive_uuid_map(sync_path, drive_uuid)
             
             # 保存全局配置并加载历史记录
             self.save_global_config()
@@ -713,7 +761,18 @@ class CodeScanner:
                     
                     # 设置最后使用的同步路径
                     if 'last_sync_path' in config and config['last_sync_path']:
-                        self.sync_path = config['last_sync_path']
+                        sync_path = config['last_sync_path']
+                        
+                        # 检查路径是否存在，如果不存在则尝试通过UUID查找
+                        if not os.path.exists(sync_path):
+                            # 获取原路径的UUID并查找映射
+                            drive_uuid = get_drive_uuid(sync_path)
+                            mapped_path = self.find_sync_path_by_uuid(drive_uuid)
+                            if mapped_path and os.path.exists(mapped_path):
+                                sync_path = mapped_path
+                                self.update_result(f"检测到盘符变化，已自动映射到新路径: {sync_path}")
+                        
+                        self.sync_path = sync_path
                         self.sync_label.config(text=f"同步到: {self.sync_path}", foreground="black")
                         self.sync_start_button.config(state='normal')
                         
@@ -795,6 +854,34 @@ class CodeScanner:
                 json.dump(config, f, ensure_ascii=False, indent=2)
         except Exception as e:
             self.update_result(f"保存全局配置失败: {e}")
+    
+    def save_drive_uuid_map(self, sync_path, drive_uuid):
+        # 保存驱动器UUID映射
+        try:
+            drive_map = {}
+            if os.path.exists(self.drive_uuid_map_file):
+                with open(self.drive_uuid_map_file, 'r', encoding='utf-8') as f:
+                    drive_map = json.load(f)
+            
+            # 更新映射
+            drive_map[drive_uuid] = sync_path
+            
+            with open(self.drive_uuid_map_file, 'w', encoding='utf-8') as f:
+                json.dump(drive_map, f, ensure_ascii=False, indent=2)
+                
+        except Exception as e:
+            self.update_result(f"保存驱动器UUID映射失败: {e}")
+    
+    def find_sync_path_by_uuid(self, drive_uuid):
+        # 通过UUID查找同步路径
+        try:
+            if os.path.exists(self.drive_uuid_map_file):
+                with open(self.drive_uuid_map_file, 'r', encoding='utf-8') as f:
+                    drive_map = json.load(f)
+                    return drive_map.get(drive_uuid)
+        except Exception as e:
+            self.update_result(f"查找同步路径失败: {e}")
+        return None
 
     def load_history_for_path(self, sync_path):
         # 为指定路径加载历史记录
