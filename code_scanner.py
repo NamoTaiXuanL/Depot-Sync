@@ -77,6 +77,9 @@ def scan_repository_files(repo_path):
         
         for file in files:
             file_path = os.path.join(root, file)
+            # 跳过特殊设备文件（如nul）
+            if file.lower() == 'nul':
+                continue
             rel_path = os.path.relpath(file_path, repo_path)
             file_hash = calculate_file_hash(file_path)
             if file_hash:
