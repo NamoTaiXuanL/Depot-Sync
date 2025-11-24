@@ -286,6 +286,10 @@ class CodeScanner:
         self.folder_button = ttk.Button(folder_frame, text="选择文件夹", command=self.select_folders, state='disabled')
         self.folder_button.grid(row=0, column=2, padx=5, sticky=tk.W)
         
+        # 删除文件夹按钮
+        self.delete_folder_button = ttk.Button(folder_frame, text="删除文件夹", command=self.delete_selected_folder, state='disabled')
+        self.delete_folder_button.grid(row=0, column=3, padx=5, sticky=tk.W)
+        
         # 已选文件夹显示
         self.folder_label = ttk.Label(folder_frame, text="未选择文件夹", foreground="gray")
         self.folder_label.grid(row=1, column=0, columnspan=4, pady=5, sticky=tk.W)
@@ -362,9 +366,15 @@ class CodeScanner:
         # 切换文件夹选择状态
         if self.select_folders_var.get():
             self.folder_button.config(state='normal')
+            # 如果有选定的文件夹，启用删除按钮
+            if hasattr(self, 'selected_folders') and self.selected_folders:
+                self.delete_folder_button.config(state='normal')
+            else:
+                self.delete_folder_button.config(state='disabled')
             self.scan_all_var.set(False)
         else:
             self.folder_button.config(state='disabled')
+            self.delete_folder_button.config(state='disabled')
             self.scan_all_var.set(True)
     
     def select_folders(self):
@@ -388,6 +398,102 @@ class CodeScanner:
             
             # 保存全局配置
             self.save_global_config()
+            
+            # 启用删除按钮
+            self.delete_folder_button.config(state='normal')
+    
+    def delete_selected_folder(self):
+        # 删除选定的文件夹
+        if not hasattr(self, 'selected_folders') or not self.selected_folders:
+            messagebox.showinfo("提示", "没有选定的文件夹可删除")
+            return
+        
+        # 创建选择对话框让用户选择要删除的文件夹
+        selected_folder = self._show_folder_selection_dialog("选择要删除的文件夹", self.selected_folders)
+        if selected_folder:
+            # 从列表中删除选定的文件夹
+            self.selected_folders.remove(selected_folder)
+            
+            # 更新显示
+            if self.selected_folders:
+                if len(self.selected_folders) <= 3:
+                    folder_names = "\n".join([os.path.basename(f) for f in self.selected_folders])
+                    display_text = f"已选择 {len(self.selected_folders)} 个文件夹:\n{folder_names}"
+                else:
+                    folder_names = "\n".join([os.path.basename(f) for f in self.selected_folders[:3]])
+                    display_text = f"已选择 {len(self.selected_folders)} 个文件夹:\n{folder_names}\n...（还有{len(self.selected_folders)-3}个）"
+                self.folder_label.config(text=display_text, foreground="black")
+            else:
+                self.folder_label.config(text="未选择文件夹", foreground="gray")
+                self.delete_folder_button.config(state='disabled')
+            
+            # 保存全局配置
+            self.save_global_config()
+    
+    def _show_folder_selection_dialog(self, title, folders):
+        # 创建选择文件夹的对话框
+        if not folders:
+            return None
+            
+        # 如果只有一个文件夹，直接返回
+        if len(folders) == 1:
+            return folders[0]
+        
+        # 创建选择窗口
+        selection_window = tk.Toplevel(self.root)
+        selection_window.title(title)
+        selection_window.geometry("400x300")
+        selection_window.transient(self.root)
+        selection_window.grab_set()
+        
+        selected_folder = None
+        
+        def on_select():
+            nonlocal selected_folder
+            selection = listbox.curselection()
+            if selection:
+                selected_folder = folders[selection[0]]
+                selection_window.destroy()
+        
+        def on_cancel():
+            nonlocal selected_folder
+            selected_folder = None
+            selection_window.destroy()
+        
+        # 创建列表框
+        frame = ttk.Frame(selection_window, padding="10")
+        frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        label = ttk.Label(frame, text="请选择要删除的文件夹:")
+        label.grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
+        
+        listbox = tk.Listbox(frame, height=10)
+        listbox.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        
+        # 添加文件夹到列表框
+        for folder in folders:
+            listbox.insert(tk.END, folder)
+        
+        # 按钮框架
+        button_frame = ttk.Frame(frame)
+        button_frame.grid(row=2, column=0, sticky=tk.E)
+        
+        select_button = ttk.Button(button_frame, text="选择", command=on_select)
+        select_button.grid(row=0, column=0, padx=5)
+        
+        cancel_button = ttk.Button(button_frame, text="取消", command=on_cancel)
+        cancel_button.grid(row=0, column=1, padx=5)
+        
+        # 配置权重
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(1, weight=1)
+        selection_window.columnconfigure(0, weight=1)
+        selection_window.rowconfigure(0, weight=1)
+        
+        # 等待窗口关闭
+        selection_window.wait_window()
+        
+        return selected_folder
     
     def select_sync_path(self):
         # 选择同步路径
