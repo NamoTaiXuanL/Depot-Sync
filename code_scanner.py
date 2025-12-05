@@ -722,7 +722,8 @@ class CodeScanner:
 
     def load_sync_info(self, sync_path):
         # 从JSON文件加载同步信息（多文件结构）
-        json_dir = os.path.join(sync_path, "Depot_Sync", "JSON")
+        # 直接使用同步路径，不再额外添加 "Depot_Sync"
+        json_dir = os.path.join(sync_path, "JSON")
         os.makedirs(json_dir, exist_ok=True)
         
         # 主索引文件路径
