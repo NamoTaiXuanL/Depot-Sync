@@ -1,0 +1,55 @@
+你提到的 `fix_file_attributes_recursive` 函数中 `attrib` 命令的用法确实有问题。正确的参数顺序是 **命令参数在前，文件夹路径在后**。
+
+### ⚙️ 正确的 `attrib` 递归用法
+
+`attrib` 命令的 `/S` 和 `/D` 参数是关键：
+*   **`/S`**：处理指定路径下的**所有子文件夹中的文件**。
+*   **`/D`**：同时处理**文件夹本身**。
+
+根据你的需求，可以参考下表：
+
+| 场景 | 示例命令 | 说明 |
+| :--- | :--- | :--- |
+| **仅递归处理文件** | `attrib -r /s "C:\MyFolder\*"` | 清除 `MyFolder` 及其所有子目录下**所有文件**的只读属性。`*` 是通配符，代表所有文件。 |
+| **同时处理文件和文件夹** | `attrib -r /s /d "C:\MyFolder"` | 清除 `MyFolder` 及其所有子目录下**文件和文件夹**的只读属性。 |
+| **处理特定类型文件** | `attrib -r /s "C:\MyFolder\*.txt"` | 仅清除所有 `.txt` 文件的只读属性。 |
+
+### 🔍 你的代码问题与改进
+你的代码 `attrib -r /s /d str(folder_path)` 有两个主要问题：
+1.  **参数顺序错误**：`/s /d` 等参数应紧跟在 `attrib` 命令之后，路径之前。
+2.  **路径处理**：直接将路径对象 `str(folder_path)` 作为字符串可能不够健壮，建议使用 `os.path.normpath()` 转换为标准路径。
+
+**改进后的函数示例**：
+```python
+import subprocess
+import os
+
+def fix_file_attributes_recursive(folder_path):
+    try:
+        # 转换为绝对路径并标准化
+        normalized_path = os.path.abspath(folder_path)
+        
+        # 使用 /s /d 递归处理文件夹和文件，路径用引号包裹防止空格问题
+        result = subprocess.run(
+            ['attrib', '-r', '/s', '/d', normalized_path],
+            capture_output=True,
+            text=True,
+            shell=True, # 在Windows上通常需要shell=True来运行内部命令
+            check=True  # 如果命令失败会抛出异常，便于捕获
+        )
+        return result.returncode == 0
+    except subprocess.CalledProcessError as e:
+        print(f"命令执行失败，返回码: {e.returncode}")
+        print(f"错误输出: {e.stderr}")
+        return False
+    except Exception as e:
+        print(f"其他错误: {e}")
+        return False
+```
+
+### ⚠️ 重要注意事项
+1.  **权限要求**：修改系统文件或受保护文件的属性，需要**以管理员身份运行**你的Python脚本。
+2.  **谨慎操作**：`/s` 和 `/d` 参数是递归操作，影响范围大，请确保 `folder_path` 指向正确的目标。
+3.  **属性影响**：`-r` 会移除文件的写保护。对于系统文件（`+S`属性），修改其属性可能需要先清除系统属性（`-s`）。
+
+如果你能分享更多关于这个复制工具使用场景的信息（例如，是处理用户文档还是系统备份），我可以提供更具体的建议。

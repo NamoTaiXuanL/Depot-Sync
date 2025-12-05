@@ -1208,10 +1208,21 @@ def fix_file_attributes(file_path):
 def fix_file_attributes_recursive(folder_path):
     # 递归修复文件夹及其子项的只读属性
     try:
-        # 使用attrib -r /s /d命令递归处理
-        result = subprocess.run(['attrib', '-r', str(folder_path), '/s', '/d'], 
-                              capture_output=True, text=True, shell=True)
-        return result.returncode == 0
+        # 使用os.walk遍历所有文件和文件夹，然后单独修复每个项目
+        for root, dirs, files in os.walk(folder_path):
+            # 修复文件属性
+            for file in files:
+                file_path = os.path.join(root, file)
+                fix_file_attributes(file_path)
+            
+            # 修复文件夹属性  
+            for dir in dirs:
+                dir_path = os.path.join(root, dir)
+                fix_file_attributes(dir_path)
+        
+        # 修复主文件夹属性
+        fix_file_attributes(folder_path)
+        return True
     except Exception:
         return False
 
