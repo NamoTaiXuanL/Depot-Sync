@@ -205,7 +205,9 @@ class CodeScanner:
         self.history_dir = None
         
         # 全局配置路径
-        self.global_config_dir = "C:\\Users\\Administrator\\Documents\\Depot_Sync\\JSON"
+        # 使用当前用户的文档目录，避免权限问题
+        user_docs_dir = os.path.join(os.path.expanduser("~"), "Documents")
+        self.global_config_dir = os.path.join(user_docs_dir, "Depot_Sync", "JSON")
         os.makedirs(self.global_config_dir, exist_ok=True)
         self.global_config_file = os.path.join(self.global_config_dir, "scanner_config.json")
         
