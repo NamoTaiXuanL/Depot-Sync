@@ -1,0 +1,33 @@
+在Windows系统中修改文件/文件夹属性从只读到可读写的命令：
+
+  1. 使用 attrib 命令（传统DOS命令）
+
+  # 移除单个文件的只读属性
+  attrib -r 文件名
+
+  # 移除文件夹的只读属性
+  attrib -r 文件夹名
+
+  # 批量处理文件夹及子文件夹
+  attrib -r 文件夹名\ /s /d
+
+  2. 使用PowerShell命令
+
+  # 移除文件只读属性
+  (Get-Item "文件路径").Attributes = "Normal"
+
+  # 移除文件夹只读属性
+  (Get-Item "文件夹路径").Attributes = "Normal"
+
+  # 批量处理
+  Get-ChildItem "文件夹路径" -Recurse | ForEach-Object { $_.Attributes = "Normal" }
+
+  3. 使用 icacls 命令（权限管理）
+
+  # 授予完全控制权限
+  icacls 文件路径 /grant 用户名:F
+
+  # 批量处理
+  icacls 文件夹路径 /grant 用户名:F /t
+
+  最常用的是 attrib -r 命令，简单有效。

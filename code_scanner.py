@@ -134,15 +134,26 @@ def sync_repository_task(repo_path, target_path, sync_info=None):
                 # 确保目标目录存在
                 os.makedirs(os.path.dirname(dst_file), exist_ok=True)
                 
-                # 复制文件
-                shutil.copy2(src_file, dst_file)
+                # 复制文件（带权限错误处理）
+                try:
+                    shutil.copy2(src_file, dst_file)
+                except PermissionError:
+                    # 如果遇到权限错误，先修复源文件属性再重试
+                    if os.path.exists(src_file):
+                        fix_file_attributes(src_file)
+                        shutil.copy2(src_file, dst_file)
                 sync_count += 1
             
             # 删除已删除的文件
             for file_path in deleted_files:
                 dst_file = os.path.join(target_path, file_path)
                 if os.path.exists(dst_file):
-                    os.remove(dst_file)
+                    try:
+                        os.remove(dst_file)
+                    except PermissionError:
+                        # 如果遇到权限错误，先修复文件属性再重试删除
+                        fix_file_attributes(dst_file)
+                        os.remove(dst_file)
                     sync_count += 1
             
             # 清理空目录
@@ -161,9 +172,19 @@ def sync_repository_task(repo_path, target_path, sync_info=None):
         else:
             # 首次同步或没有历史信息，执行完整同步
             if os.path.exists(target_path):
-                shutil.rmtree(target_path)
+                try:
+                    shutil.rmtree(target_path)
+                except PermissionError:
+                    # 如果遇到权限错误，先修复目标目录属性再重试删除
+                    fix_file_attributes_recursive(target_path)
+                    shutil.rmtree(target_path)
             
-            shutil.copytree(repo_path, target_path)
+            try:
+                shutil.copytree(repo_path, target_path)
+            except PermissionError:
+                # 如果遇到权限错误，先修复源目录属性再重试复制
+                fix_file_attributes_recursive(repo_path)
+                shutil.copytree(repo_path, target_path)
             
             sync_result = {
                 "files": current_files,
@@ -1167,6 +1188,56 @@ class CodeScanner:
                 self.show_repository_info()
         
         self.root.after(0, complete)
+
+def fix_file_attributes(file_path):
+    # 修复文件或文件夹的只读属性
+    try:
+        # 使用attrib命令移除只读属性
+        result = subprocess.run(['attrib', '-r', str(file_path)], 
+                              capture_output=True, text=True, shell=True)
+        if result.returncode == 0:
+            return True
+        else:
+            return False
+    except Exception:
+        return False
+
+def fix_file_attributes_recursive(folder_path):
+    # 递归修复文件夹及其子项的只读属性
+    try:
+        # 使用attrib -r /s /d命令递归处理
+        result = subprocess.run(['attrib', '-r', str(folder_path), '/s', '/d'], 
+                              capture_output=True, text=True, shell=True)
+        return result.returncode == 0
+    except Exception:
+        return False
+
+def handle_permission_error(sync_func, *args, **kwargs):
+    # 处理权限错误的装饰器函数
+    def wrapper():
+        try:
+            return sync_func(*args, **kwargs)
+        except PermissionError as e:
+            # 提取出错的文件路径
+            error_msg = str(e)
+            file_match = re.search(r"'(.*?)'", error_msg)
+            if file_match:
+                file_path = file_match.group(1)
+                print(f"检测到权限错误，尝试修复: {file_path}")
+                
+                # 尝试修复文件属性
+                if os.path.exists(file_path):
+                    if os.path.isfile(file_path):
+                        fix_file_attributes(file_path)
+                    else:
+                        fix_file_attributes_recursive(file_path)
+                    
+                    # 重试操作
+                    return sync_func(*args, **kwargs)
+            
+            # 如果无法修复，重新抛出异常
+            raise e
+    return wrapper
 
 def main():
     root = tk.Tk()
