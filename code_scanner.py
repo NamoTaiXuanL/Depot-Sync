@@ -1,3 +1,6 @@
+# Depot Sync项目组 作者Seraphiel 2025-12-05 版本0.2
+# 代码库扫描工具 - 智能文件同步系统
+
 import os
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
